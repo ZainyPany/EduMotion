@@ -17,7 +17,50 @@ const initialVideos: VideoRecord[] = [
   { id: '2', title: 'States of Matter', tag: 'Science', status: 'generating', date: 'Now', duration: '—', views: '0', prompt: 'Explain the three states of matter for Year 5 — use a friendly tone, show ice melting into water then steam, and add simple labels.', from: '#C3BCEC', to: '#E0DBF6' },
   { id: '3', title: 'Intro to Fractions', tag: 'Maths', status: 'draft', date: 'May 19', duration: '0:48', views: '0', prompt: 'Introduce basic fractions using visual pizza slices for Year 3.', from: '#FAC79A', to: '#FCE0CB' },
   { id: '4', title: 'Ancient Egypt Timeline', tag: 'History', status: 'published', date: 'May 14', duration: '1:30', views: '450', prompt: 'Walk through the main periods of Ancient Egypt, focusing on the pyramids.', from: '#F6DE8C', to: '#FBEFC0' },
-  { id: '5', title: 'Photosynthesis in 90s', tag: 'Biology', status: 'published', date: 'May 24', duration: '1:30', views: '100', prompt: 'Explain how plants make food using sunlight, water, and carbon dioxide.', from: '#A6DCC0', to: '#CFEBDA' },
+  { id: '5', title: 'Photosynthesis in 90s', tag: 'Biology', status: 'published', date: 'May 24', duration: '1:30', views: '100', prompt: 'Explain how plants make food using sunlight, water, and carbon dioxide.', from: '#A6DCC0', to: '#CFEBDA',
+    labTitle: 'Photosynthesis: A Step-by-Step Lab',
+    labSteps: [
+      {
+        step_id: 1,
+        layout: 'split_screen_visualization',
+        heading: 'Step 1 — The Ingredients',
+        body_markdown: "Every plant needs three things to make its own food:\n\n- **Sunlight** — captured by the leaves\n- **Water** — pulled up through the roots\n- **Carbon dioxide** — taken in from the air\n\nThink of these as the *recipe* a plant follows.",
+        visual_component_state: { animation_type: 'sunlight_water_co2_inputs', speed: '0.6' },
+        assessment: {
+          has_quiz: true,
+          question: 'Which gas does a plant take in from the air for photosynthesis?',
+          options: ['Oxygen', 'Carbon dioxide', 'Nitrogen'],
+          correct_index: 1,
+        },
+      },
+      {
+        step_id: 2,
+        layout: 'split_screen_visualization',
+        heading: 'Step 2 — The Reaction',
+        body_markdown: "Inside the leaf, a green pigment called **chlorophyll** captures sunlight. This energy is used to turn water and carbon dioxide into **glucose** (sugar) — the plant's food.\n\nThis all happens in tiny parts of the cell called **chloroplasts**.",
+        visual_component_state: { animation_type: 'chloroplast_energy_conversion', speed: '0.5' },
+        assessment: {
+          has_quiz: true,
+          question: 'What is the green pigment that captures sunlight?',
+          options: ['Glucose', 'Chlorophyll', 'Oxygen'],
+          correct_index: 1,
+        },
+      },
+      {
+        step_id: 3,
+        layout: 'conclusion_outro',
+        heading: 'Step 3 — The Output',
+        body_markdown: "The plant keeps the **glucose** as food and releases **oxygen** back into the air as a by-product.\n\nThat oxygen is what we breathe — so photosynthesis keeps both plants *and* animals alive!",
+        visual_component_state: { animation_type: 'oxygen_release_cycle', speed: '0.7' },
+        assessment: {
+          has_quiz: true,
+          question: 'What does the plant release into the air after making food?',
+          options: ['Carbon dioxide', 'Oxygen', 'Water vapour'],
+          correct_index: 1,
+        },
+      },
+    ],
+  },
   { id: '6', title: 'Parts of a Plant', tag: 'Biology', status: 'draft', date: 'May 11', duration: '0:50', views: '0', prompt: 'Identify the roots, stem, leaves, and flower of a standard plant.', from: '#F6A6C0', to: '#FBD9E3' },
 ]
 
@@ -79,7 +122,7 @@ export default function EduMotionApp() {
         try {
           const statusRes = await fetch(`/api/material/${id}`);
           if (statusRes.ok) {
-            const { status, mp4Url } = await statusRes.json();
+            const { status, mp4Url, labSteps, labTitle } = await statusRes.json();
             
             if (status === 'PROCESSING') {
               setGenProgress(prev => Math.min(prev + 5, 80));
@@ -103,7 +146,9 @@ export default function EduMotionApp() {
                   prompt: data.text || data.url || (data.file ? data.file.name : 'Uploaded Document'),
                   from: "#C3BCEC",
                   to: "#E0DBF6",
-                  mp4Url: mp4Url || undefined
+                  mp4Url: mp4Url || undefined,
+                  labSteps: labSteps || undefined,
+                  labTitle: labTitle || undefined
                 };
                 setVideos([newVideo, ...videos]);
                 setActiveVideoId(id);
