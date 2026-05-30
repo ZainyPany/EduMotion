@@ -1,9 +1,32 @@
-import { inngest } from "./client";
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { supabaseAdmin } from '../supabase';
-import { PuppeteerFfmpegCompiler } from '../video';
+/**
+ * Inngest background function: `process-material`.
+ *
+ * This is the core generation pipeline. It runs outside the HTTP request cycle
+ * (triggered via Inngest's event queue) and can safely take several minutes.
+ *
+ * Pipeline stages:
+ *   1. fetch-material    — load the DB row created by POST /api/ingest
+ *   2. set-processing    — flip status to PROCESSING so the UI polls correctly
+ *   3. generate-lab      — call Gemini to produce a LAB JSON payload (if requested)
+ *   4. save-lab          — persist steps_payload to generated_labs
+ *   5. generate-video    — call Gemini to produce a VIDEO JSON blueprint (if requested)
+ *   6. compile-video     — render blueprint to MP4 via Puppeteer + FFmpeg
+ *   7. save-video        — persist mp4_url to generated_videos
+ *   8. mark-complete     — decrement user credits and flip status to COMPLETE
+ *
+ * Each stage is wrapped in `step.run(...)` so Inngest can checkpoint progress
+ * and retry individual steps without re-running earlier ones.
+ *
+ * On any unhandled error the catch block runs `mark-failed` to flip status
+ * to FAILED and then re-throws so Inngest records the failure.
+ */
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || "");
+import { inngest } from "./client"
+import { GoogleGenerativeAI } from '@google/generative-ai'
+import { supabaseAdmin } from '../supabase'
+import { PuppeteerFfmpegCompiler } from '../video'
+
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || "")
 
 const SYSTEM_PROMPT = `
 You are a Lead Instructional Designer and Technical Animator. Process the
@@ -56,7 +79,7 @@ Do not output conversational text or commentary. Return only raw valid JSON.
 export const processMaterial = inngest.createFunction(
   { id: "process-material", retries: 2, triggers: [{ event: "material/process" }] },
   async ({ event, step }) => {
-    const { materialId } = event.data as any;
+    const { materialId } = event.data as { materialId: string }
 
     // Fetch Material
     const material = await step.run("fetch-material", async () => {
@@ -123,27 +146,29 @@ export const processMaterial = inngest.createFunction(
         });
       }
 
-      // Decrement credits and mark complete
+      // Decrement credits and mark complete.
+      // NOTE: This is a non-atomic read-then-write. Under concurrent load the
+      // decrement could be inaccurate. A Supabase RPC / database function that
+      // does `UPDATE ... SET credits = credits - 1` would eliminate this race.
       await step.run("mark-complete", async () => {
-        // Fetch current credits
         const { data: profile } = await supabaseAdmin
           .from('profiles')
           .select('available_credits')
           .eq('id', material.user_id)
-          .single();
+          .single()
 
         if (profile) {
           await supabaseAdmin
             .from('profiles')
             .update({ available_credits: Math.max(0, profile.available_credits - 1) })
-            .eq('id', material.user_id);
+            .eq('id', material.user_id)
         }
 
         await supabaseAdmin
           .from('educational_materials')
           .update({ status: 'COMPLETE' })
-          .eq('id', materialId);
-      });
+          .eq('id', materialId)
+      })
 
       return { success: true };
 
@@ -159,38 +184,47 @@ export const processMaterial = inngest.createFunction(
   }
 );
 
-async function generateWithFallback(prompt: string, length: number): Promise<any> {
-  const models = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.5-pro', 'gemini-1.5-pro'];
-  let lastError = null;
+/**
+ * Calls the Gemini API with a model-cascade fallback strategy.
+ *
+ * Tries models in priority order. If a model is rate-limited or errors out,
+ * waits 2 s then moves to the next candidate. Throws the last error if all
+ * models are exhausted.
+ *
+ * `responseMimeType: "application/json"` instructs Gemini to return raw JSON
+ * without Markdown wrapper — but we defensively strip ``` fences anyway since
+ * some model versions still add them.
+ */
+async function generateWithFallback(prompt: string, length: number): Promise<unknown> {
+  const models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.5-pro", "gemini-1.5-pro"]
+  let lastError: unknown = null
 
   for (const modelName of models) {
     try {
-      console.log(`Attempting generation with model: ${modelName}`);
+      console.log(`Attempting generation with model: ${modelName}`)
       const model = genAI.getGenerativeModel({
         model: modelName,
         systemInstruction: SYSTEM_PROMPT.replace("$LENGTH_MINUTES", length.toString()),
-        generationConfig: {
-          responseMimeType: "application/json",
-        }
-      });
+        generationConfig: { responseMimeType: "application/json" },
+      })
 
-      const response = await model.generateContent(prompt);
-      let text = response.response.text();
-      
-      // Extract JSON from response if it gets wrapped in markdown code blocks.
-      const jsonMatch = text.match(/```json\n([\s\S]*)\n```/);
-      if (jsonMatch) text = jsonMatch[1];
-      
-      const parsed = JSON.parse(text);
-      console.log(`Successfully generated payload using ${modelName}`);
-      return parsed;
+      const response = await model.generateContent(prompt)
+      let text = response.response.text()
+
+      // Strip Markdown code fences if the model wrapped the JSON.
+      const jsonMatch = text.match(/```json\n([\s\S]*)\n```/)
+      if (jsonMatch) text = jsonMatch[1]
+
+      const parsed = JSON.parse(text)
+      console.log(`Successfully generated payload using ${modelName}`)
+      return parsed
     } catch (e) {
-      console.warn(`Failed with model ${modelName}`, e);
-      lastError = e;
-      // Sleep for 2 seconds before trying the next fallback to let rate limits settle
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.warn(`Failed with model ${modelName}:`, e)
+      lastError = e
+      // Brief pause to let rate-limit windows reset before the next attempt.
+      await new Promise(resolve => setTimeout(resolve, 2000))
     }
   }
-  
-  throw lastError;
+
+  throw lastError
 }

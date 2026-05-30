@@ -1,5 +1,21 @@
 "use client"
 
+/**
+ * LabViewer — an interactive step-by-step lab experience built on LabStep data.
+ *
+ * Features:
+ *   - Sequential step navigation with a progress bar
+ *   - Per-step gradient visual panel (colour cycles through a fixed palette)
+ *   - Lightweight Markdown renderer for body text (bold, bullet lists, headings)
+ *   - Quiz blocks with instant ✅/✕ answer feedback
+ *   - Steps with quizzes are gated: the student must answer correctly to advance
+ *   - Previously-correct answers are remembered when navigating back
+ *   - Completion screen showing the quiz score (correct / total)
+ *
+ * Quiz state is tracked with a `Set<number>` (`correctSteps`) keyed by step
+ * index, so navigating back to a correct step doesn't reset it.
+ */
+
 import * as React from "react"
 import { Icon } from "@/components/icons"
 import { LabStep } from "@/lib/types"
@@ -10,7 +26,7 @@ interface LabViewerProps {
   title?: string
 }
 
-// A small palette so each step gets a distinct, friendly gradient.
+/** Rotates through a small set of friendly gradients — one colour per step. */
 const GRADIENTS: [string, string][] = [
   ["#C3BCEC", "#E0DBF6"], // lavender
   ["#A6DCC0", "#CFEBDA"], // mint
@@ -20,6 +36,10 @@ const GRADIENTS: [string, string][] = [
   ["#F6DE8C", "#FBEFC0"], // sunny
 ]
 
+/**
+ * Converts an animation_type slug (e.g. "sunlight_water_co2_inputs") to a
+ * human-readable label ("Sunlight Water Co2 Inputs") for the visual panel caption.
+ */
 function humanize(s?: string): string {
   if (!s) return "Interactive Visual"
   return s
@@ -28,8 +48,11 @@ function humanize(s?: string): string {
     .trim()
 }
 
-// ---- Tiny, dependency-free markdown renderer ----
-// Handles **bold**, bullet lists, numbered lists, headings, and paragraphs.
+// ── Lightweight Markdown renderer ─────────────────────────────────────────────
+// Handles **bold**, bullet lists (- / * / •), ordered lists, ATX headings,
+// and plain paragraphs. Intentionally minimal — no external dependencies.
+
+/** Renders a single line of inline Markdown, converting **bold** spans. */
 function renderInline(s: string): React.ReactNode[] {
   return s.split(/(\*\*[^*]+\*\*)/g).map((part, i) => {
     if (part.startsWith("**") && part.endsWith("**")) {

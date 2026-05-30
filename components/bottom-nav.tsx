@@ -1,3 +1,11 @@
+/**
+ * BottomNav — mobile-only bottom navigation bar (hidden at `md` and above).
+ *
+ * Supports a light theme (white background + dark icons) and a dark theme
+ * (ink background + white icons) for use on the dark Create screen.
+ * The `fab` prop is reserved for future FAB-style action button styling.
+ */
+
 import * as React from "react"
 import { Icon, IconName } from "./icons"
 import { cn } from "@/lib/utils"

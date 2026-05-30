@@ -1,6 +1,20 @@
+/**
+ * Inline SVG icon system.
+ *
+ * All icons are hand-traced 24×24 path strings stored in a single lookup
+ * object. This avoids a third-party icon font and keeps the bundle lean —
+ * only the paths actually used in the app ship to the browser.
+ *
+ * Usage:
+ *   <Icon name="play" size={20} className="text-ink" />
+ *
+ * To add a new icon, append an entry to `iconPaths` and update `IconName`.
+ */
+
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
+/** SVG path data keyed by icon name. All paths are designed for a 24×24 viewBox. */
 const iconPaths = {
   grid:    'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z',
   spark:   'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z',

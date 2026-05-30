@@ -1,6 +1,22 @@
-import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
-import { supabaseAdmin } from '@/lib/supabase';
+/**
+ * GET /api/material/:id
+ *
+ * Polling endpoint used by the client to check generation progress.
+ *
+ * Returns the current status of an `educational_materials` row and, once
+ * the job is COMPLETE, the associated output assets:
+ *   - `mp4Url`   — public Supabase Storage URL of the compiled video (if any)
+ *   - `labSteps` — ordered array of LabStep objects (if any)
+ *   - `labTitle` — title extracted from the lab payload metadata
+ *
+ * The client polls this endpoint every 2 s until status is COMPLETE or FAILED.
+ *
+ * Returns: { status: string, mp4Url: string | null, labSteps: LabStep[] | null, labTitle: string | null }
+ */
+
+import { NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
+import { supabaseAdmin } from '@/lib/supabase'
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {

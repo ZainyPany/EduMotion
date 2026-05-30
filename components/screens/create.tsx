@@ -1,3 +1,15 @@
+/**
+ * Create screen — the entry point for generating new educational assets.
+ *
+ * Supports three input modes:
+ *   - "text"  : plain-text paste from a lesson plan or notes
+ *   - "url"   : a publicly-accessible webpage (scrapped server-side)
+ *   - "pdf"   : a local PDF file uploaded via multipart form
+ *
+ * While generation is in progress the form is replaced by a progress overlay.
+ * Errors surface within the same overlay so the user can dismiss and retry.
+ */
+
 import * as React from "react"
 import { Icon, IconName } from "@/components/icons"
 import { cn } from "@/lib/utils"
@@ -8,7 +20,14 @@ interface CreateProps {
   sceneIndex: number
   sceneTotal: number
   error?: string | null
-  onGenerate: (data: { assetType: string, targetLength: number, text?: string, url?: string, file?: File }) => void
+  onGenerate: (data: {
+    assetType: string
+    targetLength: number
+    gradeLevel: string
+    text?: string
+    url?: string
+    file?: File
+  }) => void
   onCancel: () => void
 }
 
@@ -38,9 +57,10 @@ export function Create({
     onGenerate({
       assetType,
       targetLength: runtime,
-      text: inputMode === 'text' ? textInput : undefined,
-      url: inputMode === 'url' ? urlInput : undefined,
-      file: inputMode === 'pdf' && fileInput ? fileInput : undefined,
+      gradeLevel,
+      text: inputMode === "text" ? textInput : undefined,
+      url: inputMode === "url" ? urlInput : undefined,
+      file: inputMode === "pdf" && fileInput ? fileInput : undefined,
     })
   }
 

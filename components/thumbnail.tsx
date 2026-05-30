@@ -1,3 +1,12 @@
+/**
+ * Thumbnail — a gradient placeholder card used wherever a video doesn't yet
+ * have a rendered preview image. Renders a decorative SVG layer (circles +
+ * wave path) on top of the gradient to give it visual depth, plus a centred
+ * play-button circle and an optional subject-tag chip.
+ *
+ * The `mini` prop switches to a compact size suitable for list rows.
+ */
+
 import * as React from "react"
 import { Icon } from "./icons"
 import { cn } from "@/lib/utils"

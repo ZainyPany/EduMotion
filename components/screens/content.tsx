@@ -1,3 +1,12 @@
+/**
+ * Content screen — the "My Content" library grid.
+ *
+ * Lists all VideoRecord items in a responsive grid with filter tabs
+ * (All / Drafts / Published). Each card exposes Edit, Share, and Delete
+ * action buttons that appear on hover. Clicking the card body navigates
+ * to the Viewer screen.
+ */
+
 import * as React from "react"
 import { Icon } from "@/components/icons"
 import { StatusPill } from "@/components/status-pill"

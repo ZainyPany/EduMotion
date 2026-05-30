@@ -1,5 +1,19 @@
 "use client"
 
+/**
+ * Root application shell.
+ *
+ * Owns all cross-screen state (active view, video list, generation lifecycle)
+ * and wires together the sidebar, bottom nav, and the four main screens:
+ * Dashboard, Create, Content, and Viewer.
+ *
+ * Generation flow (high-level):
+ *   1. User submits the Create form → POST /api/ingest → returns a material ID.
+ *   2. We poll GET /api/material/:id every 2 s until status is COMPLETE or FAILED.
+ *   3. On COMPLETE we receive mp4Url + labSteps and push the new VideoRecord into
+ *      local state, then navigate the user straight to the Viewer.
+ */
+
 import * as React from "react"
 import { useUser } from "@clerk/nextjs"
 import { VideoRecord } from "@/lib/types"
@@ -68,113 +82,180 @@ export default function EduMotionApp() {
   const { user } = useUser()
   const userName = user?.firstName || "Ms. Rivera"
 
-  // App State
+  // ── View & content state ──────────────────────────────────────────────────
   const [activeView, setActiveView] = React.useState<ViewType>("dashboard")
   const [videos, setVideos] = React.useState<VideoRecord[]>(initialVideos)
   const [activeVideoId, setActiveVideoId] = React.useState<string | null>(null)
-  
-  // Generation State
+
+  // ── Generation lifecycle state ─────────────────────────────────────────────
   const [isGenerating, setIsGenerating] = React.useState(false)
   const [genProgress, setGenProgress] = React.useState(0)
   const [sceneIndex, setSceneIndex] = React.useState(1)
   const [genError, setGenError] = React.useState<string | null>(null)
   const [showcaseMode, setShowcaseMode] = React.useState(false)
 
+  /**
+   * Holds the polling interval so we can clear it from anywhere
+   * (cancel handler, unmount, COMPLETE/FAILED branches).
+   */
+  const pollingRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
+
+  /** Clear polling interval on unmount to prevent memory leaks. */
+  React.useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current)
+    }
+  }, [])
+
+  /**
+   * Derives the currently-displayed video.
+   * Falls back to the first video in the list when no explicit selection exists
+   * (e.g. the very first time the viewer is opened via the dashboard).
+   */
   const activeVideo = React.useMemo(
     () => videos.find(v => v.id === activeVideoId) || videos[0],
     [videos, activeVideoId]
   )
 
-  // Simulation of generation process and API Call
-  const handleGenerate = async (data: { assetType: string, targetLength: number, text?: string, url?: string, file?: File }) => {
+  /**
+   * Submits source material to the ingest API and begins polling for results.
+   *
+   * PDF uploads use multipart/form-data; text and URL inputs use JSON.
+   * Polling occurs every 2 s and advances a progress indicator until the job
+   * reaches COMPLETE or FAILED status.
+   */
+  const handleGenerate = async (data: {
+    assetType: string
+    targetLength: number
+    gradeLevel?: string
+    text?: string
+    url?: string
+    file?: File
+  }) => {
     setIsGenerating(true)
     setGenProgress(0)
     setSceneIndex(1)
     setGenError(null)
-    
+
     try {
-      const formData = new FormData()
-      formData.append("assetType", data.assetType)
-      formData.append("targetLength", data.targetLength.toString())
-      
-      let res;
+      let res: Response
+
       if (data.file) {
+        const formData = new FormData()
+        formData.append("assetType", data.assetType)
+        formData.append("targetLength", data.targetLength.toString())
+        if (data.gradeLevel) formData.append("gradeLevel", data.gradeLevel)
         formData.append("file", data.file)
         res = await fetch("/api/ingest", { method: "POST", body: formData })
       } else {
-        res = await fetch("/api/ingest", { 
-          method: "POST", 
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ assetType: data.assetType, targetLength: data.targetLength, text: data.text, url: data.url })
+        res = await fetch("/api/ingest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            assetType: data.assetType,
+            targetLength: data.targetLength,
+            gradeLevel: data.gradeLevel,
+            text: data.text,
+            url: data.url,
+          }),
         })
       }
 
       if (!res.ok) {
         let errMsg = "Server error. Please check the app is running and try again."
-        try { const errBody = await res.json(); errMsg = errBody.error || errMsg } catch {}
+        try {
+          const errBody = await res.json()
+          errMsg = errBody.error || errMsg
+        } catch { /* response body not JSON — keep default message */ }
         setGenError(errMsg)
+        setIsGenerating(false)
         return
       }
 
-      const { id } = await res.json();
-      
-      const interval = setInterval(async () => {
+      const { id } = await res.json()
+
+      // Poll /api/material/:id every 2 s until the background job settles.
+      pollingRef.current = setInterval(async () => {
         try {
-          const statusRes = await fetch(`/api/material/${id}`);
-          if (statusRes.ok) {
-            const { status, mp4Url, labSteps, labTitle } = await statusRes.json();
-            
-            if (status === 'PROCESSING') {
-              setGenProgress(prev => Math.min(prev + 5, 80));
-              setSceneIndex(2);
+          const statusRes = await fetch(`/api/material/${id}`)
+          if (!statusRes.ok) return // transient network hiccup — retry next tick
+
+          const { status, mp4Url, labSteps, labTitle } = await statusRes.json()
+
+          if (status === "PROCESSING") {
+            // Advance progress bar towards 80%; the final push happens on COMPLETE.
+            setGenProgress(prev => Math.min(prev + 5, 80))
+            setSceneIndex(2)
+          }
+
+          if (status === "COMPLETE") {
+            if (pollingRef.current) {
+              clearInterval(pollingRef.current)
+              pollingRef.current = null
             }
-            
-            if (status === 'COMPLETE') {
-              clearInterval(interval);
-              setGenProgress(100);
-              setSceneIndex(3);
-              
-              setTimeout(() => {
-                const newVideo: VideoRecord = {
-                  id: id,
-                  title: data.text?.slice(0, 30) || data.url || (data.file ? data.file.name : 'Generated Asset'),
-                  tag: "Generated",
-                  status: "published",
-                  date: "Just now",
-                  duration: data.targetLength + ":00",
-                  views: "0",
-                  prompt: data.text || data.url || (data.file ? data.file.name : 'Uploaded Document'),
-                  from: "#C3BCEC",
-                  to: "#E0DBF6",
-                  mp4Url: mp4Url || undefined,
-                  labSteps: labSteps || undefined,
-                  labTitle: labTitle || undefined
-                };
-                setVideos([newVideo, ...videos]);
-                setActiveVideoId(id);
-                setIsGenerating(false);
-                setGenError(null);
-                setActiveView("viewer");
-              }, 500);
+            setGenProgress(100)
+            setSceneIndex(3)
+
+            // Brief pause so the user sees 100% before we switch screens.
+            setTimeout(() => {
+              const newVideo: VideoRecord = {
+                id,
+                title:
+                  data.text?.slice(0, 30) ||
+                  data.url ||
+                  (data.file ? data.file.name : "Generated Asset"),
+                tag: "Generated",
+                status: "published",
+                date: "Just now",
+                duration: `${data.targetLength}:00`,
+                views: "0",
+                prompt:
+                  data.text ||
+                  data.url ||
+                  (data.file ? data.file.name : "Uploaded Document"),
+                from: "#C3BCEC",
+                to: "#E0DBF6",
+                mp4Url: mp4Url || undefined,
+                labSteps: labSteps || undefined,
+                labTitle: labTitle || undefined,
+              }
+              // Use functional update to avoid stale closure over `videos`.
+              setVideos(prev => [newVideo, ...prev])
+              setActiveVideoId(id)
+              setIsGenerating(false)
+              setGenError(null)
+              setActiveView("viewer")
+            }, 500)
+          }
+
+          if (status === "FAILED") {
+            if (pollingRef.current) {
+              clearInterval(pollingRef.current)
+              pollingRef.current = null
             }
-            
-            if (status === 'FAILED') {
-              clearInterval(interval);
-              setGenError("Generation failed. The AI model may be busy — please try again in a moment.");
-            }
+            setIsGenerating(false)
+            setGenError(
+              "Generation failed. The AI model may be busy — please try again in a moment."
+            )
           }
         } catch (e) {
-          console.error("Polling error", e);
+          // Log but don't surface transient polling errors to the user.
+          console.error("Polling error:", e)
         }
-      }, 2000);
-
+      }, 2000)
     } catch (err: any) {
-      console.error(err)
+      console.error("Ingest request failed:", err)
+      setIsGenerating(false)
       setGenError("Network error. Please check your connection and try again.")
     }
   }
 
+  /** Aborts an in-progress generation and resets all related state. */
   const handleCancelGeneration = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current)
+      pollingRef.current = null
+    }
     setIsGenerating(false)
     setGenError(null)
     setGenProgress(0)
@@ -182,7 +263,8 @@ export default function EduMotionApp() {
   }
 
 
-  // View routing wrapper
+  // ── Screen renderer ──────────────────────────────────────────────────────────
+  /** Maps the current `activeView` value to the correct screen component. */
   const renderView = () => {
     if (activeView === "dashboard") {
       return (
@@ -238,14 +320,19 @@ export default function EduMotionApp() {
     return null
   }
 
+  // The "user" tab opens the Clerk UserButton sheet; it doesn't change the view.
   const navItemsMobile: { id: string; icon: IconName }[] = [
     { id: "dashboard", icon: "home" },
     { id: "content", icon: "folder" },
     { id: "create", icon: "wand" },
-    { id: "user", icon: "user" }
+    { id: "user", icon: "user" },
   ]
 
-  // Main Shell Render
+  // ── Shell layout ─────────────────────────────────────────────────────────────
+  /**
+   * The shared application shell rendered in both normal and showcase modes.
+   * Desktop uses a left-rail Sidebar; mobile uses a BottomNav.
+   */
   const AppShell = (
     <div className="flex h-full w-full flex-col md:flex-row overflow-hidden bg-white">
       {/* Desktop Sidebar */}

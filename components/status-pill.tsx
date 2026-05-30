@@ -1,3 +1,8 @@
+/**
+ * StatusPill — a small colour-coded badge that shows the publication status
+ * of a video record. Used in both the content grid and the viewer header.
+ */
+
 import * as React from "react"
 import { cn } from "@/lib/utils"
 

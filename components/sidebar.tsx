@@ -1,10 +1,20 @@
 "use client"
 
+/**
+ * Desktop Sidebar — visible at the `md` breakpoint and above.
+ *
+ * Renders the EduMotion logo, primary navigation items, a "New video" CTA
+ * button, and the signed-in user's avatar/name at the bottom. When Clerk has
+ * not yet loaded (or the user is not signed in) it falls back to a placeholder
+ * avatar and the string "Ms. Rivera".
+ */
+
 import * as React from "react"
 import { Icon, IconName } from "./icons"
 import { cn } from "@/lib/utils"
 import { useUser, UserButton } from "@clerk/nextjs"
 
+/** The four primary navigation destinations in the app. */
 export type ViewType = "dashboard" | "create" | "content" | "viewer"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {

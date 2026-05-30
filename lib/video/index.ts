@@ -1,32 +1,55 @@
-import { supabaseAdmin } from '../supabase';
-import path from 'path';
-import fs from 'fs';
-import os from 'os';
+/**
+ * Video compilation pipeline: VideoBlueprint → MP4 in Supabase Storage.
+ *
+ * How it works:
+ *   1. `generateRendererHTML` serialises the blueprint scenes into a self-contained
+ *      HTML file that exposes a `window.renderFrame(index)` function. The page
+ *      renders each frame as a static 1280×720 snapshot with CSS animations
+ *      frozen at a specific point in time.
+ *   2. Puppeteer opens the HTML file in a headless browser, calls `renderFrame`
+ *      for every frame (at 30 fps), and screenshots each one to a temp PNG.
+ *   3. FFmpeg stitches all PNGs into an H.264 MP4 using the `libx264` codec.
+ *   4. The compiled MP4 is uploaded to the `videos` bucket in Supabase Storage
+ *      and the public URL is returned.
+ *
+ * Puppeteer and FFmpeg are loaded via `eval`/`require` to avoid Next.js
+ * build-time analysis; both are server-only dependencies that must not be
+ * bundled into client chunks.
+ */
 
+import { supabaseAdmin } from '../supabase'
+import path from 'path'
+import fs from 'fs'
+import os from 'os'
+
+/** The AI-generated blueprint that describes a video scene-by-scene. */
 export interface VideoBlueprint {
-  video_id?: string;
+  video_id?: string
   metadata?: {
-    title?: string;
-    grade_level?: string;
-  };
+    title?: string
+    grade_level?: string
+  }
   scenes: Array<{
-    scene_id: number;
-    layout: 'title_intro' | 'concept_card' | 'kinetic_text' | 'split_screen' | 'conclusion_outro';
-    duration_seconds: number;
-    title: string;
-    subtitle?: string;
-    points?: string[];
-    background_gradient?: string;
-    visual_vectors?: string[];
-  }>;
+    scene_id: number
+    layout: 'title_intro' | 'concept_card' | 'kinetic_text' | 'split_screen' | 'conclusion_outro'
+    duration_seconds: number
+    title: string
+    subtitle?: string
+    /** Bullet points for concept_card and split_screen layouts. */
+    points?: string[]
+    /** Override gradient for the scene background (CSS linear-gradient string). */
+    background_gradient?: string
+    visual_vectors?: string[]
+  }>
 }
 
+/** Optional callbacks for tracking compile progress (0–100). */
 export interface CompileOptions {
-  onProgress?: (progress: number) => void;
+  onProgress?: (progress: number) => void
 }
 
 export interface VideoCompiler {
-  compile(blueprint: VideoBlueprint, opts?: CompileOptions): Promise<{ mp4Url: string }>;
+  compile(blueprint: VideoBlueprint, opts?: CompileOptions): Promise<{ mp4Url: string }>
 }
 
 export class PuppeteerFfmpegCompiler implements VideoCompiler {

@@ -1,3 +1,12 @@
+/**
+ * Viewer screen — displays a single VideoRecord in either video-player or
+ * interactive-lab mode. The Video/Lab tab toggle is only rendered when the
+ * record includes lab steps (`video.labSteps?.length > 0`).
+ *
+ * Video playback is handled by a native <video> element; the custom controls
+ * overlay a scrubber and play/pause button on top of it.
+ */
+
 import * as React from "react"
 import { Icon } from "@/components/icons"
 import { StatusPill } from "@/components/status-pill"
@@ -68,14 +77,14 @@ export function Viewer({
   }
 
   const handleScrubberClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (videoRef.current) {
-      const rect = e.currentTarget.getBoundingClientRect()
-      const clickX = e.clientX - rect.left
-      const width = rect.width
-      const percentage = clickX / width
-      videoRef.current.currentTime = percentage * videoRef.current.duration
-      setProgress(percentage * 100)
-    }
+    if (!videoRef.current) return
+    // Guard against NaN duration (video metadata not yet loaded).
+    if (isNaN(videoRef.current.duration) || videoRef.current.duration === 0) return
+
+    const rect = e.currentTarget.getBoundingClientRect()
+    const percentage = (e.clientX - rect.left) / rect.width
+    videoRef.current.currentTime = percentage * videoRef.current.duration
+    setProgress(percentage * 100)
   }
 
   return (

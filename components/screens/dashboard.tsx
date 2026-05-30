@@ -1,3 +1,11 @@
+/**
+ * Dashboard screen — the home screen teachers see after signing in.
+ *
+ * Shows a summary strip (total videos, drafts, total views) and a "Recent
+ * content" list of the four most recently-added videos. A separate mobile
+ * layout with a hero CTA card is rendered below the `md` breakpoint.
+ */
+
 import * as React from "react"
 import { Icon } from "@/components/icons"
 import { StatusPill } from "@/components/status-pill"
@@ -18,6 +26,17 @@ export function Dashboard({
   onCreateNew,
 }: DashboardProps) {
   const recentVideos = videos.slice(0, 4)
+
+  // Derive stats from real data so the strip stays accurate as videos change.
+  const totalVideos = videos.length
+  const totalDrafts = videos.filter(v => v.status === "draft").length
+  const totalViews = videos.reduce((sum, v) => {
+    // Views are stored as locale-formatted strings (e.g. "1,204") — strip commas.
+    const n = parseInt(v.views.replace(/,/g, ""), 10)
+    return sum + (isNaN(n) ? 0 : n)
+  }, 0)
+  const viewsLabel =
+    totalViews >= 1000 ? `${(totalViews / 1000).toFixed(1)}k` : String(totalViews)
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -42,13 +61,13 @@ export function Dashboard({
           </div>
         </div>
 
-        {/* Stat strip */}
+        {/* Stat strip — values are computed from the live videos array */}
         <div className="mb-[30px] grid grid-cols-3 gap-4">
-          {[
-            ["24", "Total videos", "var(--color-mint)"],
-            ["3", "Drafts", "var(--color-peach)"],
-            ["1.2k", "Total views", "var(--color-lav)"],
-          ].map(([n, l, c], i) => (
+          {([
+            [String(totalVideos), "Total videos", "var(--color-mint)"],
+            [String(totalDrafts), "Drafts", "var(--color-peach)"],
+            [viewsLabel, "Total views", "var(--color-lav)"],
+          ] as [string, string, string][]).map(([n, l, c], i) => (
             <div
               key={i}
               className="rounded-2xl border border-line px-5 py-[18px]"
