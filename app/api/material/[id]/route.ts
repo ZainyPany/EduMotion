@@ -23,18 +23,37 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     let mp4Url = null;
+    let labSteps = null;
+    let labTitle = null;
+
     if (material.status === 'COMPLETE') {
+      // Fetch the compiled video (if this material produced one)
       const { data: videoData } = await supabaseAdmin
         .from('generated_videos')
         .select('mp4_url')
         .eq('material_id', id)
-        .single();
+        .maybeSingle();
       if (videoData) {
         mp4Url = videoData.mp4_url;
       }
+
+      // Fetch the interactive lab (if this material produced one)
+      const { data: labData } = await supabaseAdmin
+        .from('generated_labs')
+        .select('steps_payload')
+        .eq('material_id', id)
+        .maybeSingle();
+      if (labData?.steps_payload) {
+        const payload = labData.steps_payload as {
+          steps?: unknown;
+          metadata?: { title?: string };
+        };
+        labSteps = Array.isArray(payload.steps) ? payload.steps : null;
+        labTitle = payload.metadata?.title ?? null;
+      }
     }
 
-    return NextResponse.json({ status: material.status, mp4Url });
+    return NextResponse.json({ status: material.status, mp4Url, labSteps, labTitle });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
